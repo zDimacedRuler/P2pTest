@@ -1,5 +1,7 @@
 package com.example.p2ptext;
 
+import android.util.Log;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -21,13 +23,12 @@ public class PeerDetails {
     public PeerDetails() {
     }
 
-    public PeerDetails(String macAddress, int connectedPeers, boolean groupOwner, int batteryLevel, String phoneNumber) {
+    public PeerDetails(String macAddress, int connectedPeers, boolean groupOwner, int batteryLevel) {
         this.macAddress = macAddress;
         this.maxConnectedPeers = 4;
         this.connectedPeers = connectedPeers;
         this.groupOwner = groupOwner;
         this.batteryLevel = batteryLevel;
-        this.phoneNumber = phoneNumber;
     }
 
     public void setMacAddress(String macAddress) {
@@ -78,35 +79,22 @@ public class PeerDetails {
         return phoneNumber;
     }
 
-    public Map<String, String> getRecordMap() {
-        Map<String, String> record = new HashMap<>();
-        record.put(MAC_ADDRESS, getMacAddress());
-        record.put(MAX_CONNECTED_PEER, String.valueOf(getMaxConnectedPeers()));
-        record.put(CONNECTED_PEERS, String.valueOf(getConnectedPeers()));
-        record.put(GROUP_OWNER, String.valueOf(isGroupOwner()));
-        record.put(BATTERY_LEVEL, String.valueOf(getBatteryLevel()));
-        record.put(PHONE_NUMBER, getPhoneNumber());
-        return record;
-    }
-
-    public static PeerDetails getPeerDetailsObject(Map<String, String> record) {
-        PeerDetails peer = new PeerDetails(record.get(MAC_ADDRESS),
-                Integer.valueOf(record.get(CONNECTED_PEERS)),
-                Boolean.valueOf(record.get(GROUP_OWNER)),
-                Integer.valueOf(record.get(BATTERY_LEVEL)),
-                record.get(PHONE_NUMBER));
+    public static PeerDetails getPeerDetailsObject(String record) {
+        if (record == null || record.isEmpty()) {
+            Log.e(P2pConnect.P2P_CONNECT_TAG, "Record string is empty");
+            return null;
+        }
+        Log.e(P2pConnect.P2P_CONNECT_TAG, "Record string:" + record);
+        String[] recordValues = record.split("-");
+        PeerDetails peer = new PeerDetails(recordValues[1],
+                Integer.valueOf(recordValues[2]),
+                Boolean.valueOf(recordValues[3]),
+                Integer.valueOf(recordValues[4]));
         return peer;
     }
 
     @Override
     public String toString() {
-        return "PeerDetails{" +
-                "macAddress='" + macAddress + '\'' +
-                ", maxConnectedPeers=" + maxConnectedPeers +
-                ", connectedPeers=" + connectedPeers +
-                ", groupOwner=" + groupOwner +
-                ", batteryLevel=" + batteryLevel +
-                ", phoneNumber=" + phoneNumber +
-                '}';
+        return "p2p" + "-" + macAddress + "-" + connectedPeers + "-" + groupOwner + "-" + batteryLevel;
     }
 }

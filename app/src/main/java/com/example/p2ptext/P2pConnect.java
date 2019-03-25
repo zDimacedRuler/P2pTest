@@ -68,7 +68,7 @@ public class P2pConnect implements Runnable {
                         }
                     } else if (P2P_CONNECT_PHASE == SWITCHING_PHASE) {
                         for (WifiP2pDevice device : p2pDeviceList) {
-                            //device should be available and not a group owner and not have tried to connect previously
+                            //device should be available and not a group owner
                             if (device.status == WifiP2pDevice.AVAILABLE && !device.isGroupOwner()) {
                                 Log.d(P2P_CONNECT_TAG, "Peer Found " + device.deviceAddress + " .Trying to connect");
                                 if (getBatteryPercentage() > THRESHOLD_BATTERY) {
@@ -91,7 +91,7 @@ public class P2pConnect implements Runnable {
             //change p2p_connect phase to connection phase
             P2P_CONNECT_PHASE = CONNECTION_PHASE;
         }
-        handler.postDelayed(this, 20000);
+        handler.postDelayed(this, 40000);
     }
 
     private String printPhase() {
@@ -122,7 +122,6 @@ public class P2pConnect implements Runnable {
         if (batteryStatus != null) {
             percentage = batteryStatus.getIntExtra(BatteryManager.EXTRA_LEVEL, 0);
         }
-        Log.d(P2P_CONNECT_TAG, "Battery percentage:" + percentage);
         return percentage;
     }
 }

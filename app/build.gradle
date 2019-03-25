@@ -29,4 +29,7 @@ dependencies {
 
     //PSync
     implementation files('libs/psync-pc-jar-with-dependencies.jar')
+
+    //chirp
+    implementation 'io.chirp:chirpsdk:3.6.1'
 }

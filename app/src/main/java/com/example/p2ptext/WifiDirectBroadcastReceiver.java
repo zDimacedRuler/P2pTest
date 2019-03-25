@@ -58,7 +58,6 @@ public class WifiDirectBroadcastReceiver extends BroadcastReceiver {
             NetworkInfo info = intent.getParcelableExtra(WifiP2pManager.EXTRA_NETWORK_INFO);
             Log.d(MainActivity.DEBUG_TAG, "Device status -" + WiFiDevicesAdapter.getDeviceStatus(device.status));
             P2pConnect.DEVICE_STATUS = device.status;
-            Log.d(MainActivity.DEBUG_TAG, "Device status -" + WiFiDevicesAdapter.getDeviceStatus(device.status));
         } else if (WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION.equals(action)) {
             // Call WifiP2pManager.requestPeers() to get a list of current peers
             if (manager != null) {

@@ -26,7 +26,8 @@ public class SplashActivity extends AppCompatActivity {
     public File workingFolder = Environment.getExternalStoragePublicDirectory("PMS/Working");
     String[] PERMISSIONS = {
             Manifest.permission.WRITE_EXTERNAL_STORAGE,
-            Manifest.permission.ACCESS_FINE_LOCATION};
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.RECORD_AUDIO};
     private EditText phoneText;
     private Button submitButton;
     private SharedPreferences sp;

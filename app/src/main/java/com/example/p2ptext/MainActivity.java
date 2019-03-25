@@ -14,8 +14,6 @@ import android.net.wifi.p2p.WifiP2pDeviceList;
 import android.net.wifi.p2p.WifiP2pGroup;
 import android.net.wifi.p2p.WifiP2pInfo;
 import android.net.wifi.p2p.WifiP2pManager;
-import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceInfo;
-import android.net.wifi.p2p.nsd.WifiP2pDnsSdServiceRequest;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -32,19 +30,17 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
+
+import io.chirp.connect.ChirpConnect;
+import io.chirp.connect.interfaces.ConnectEventListener;
+import io.chirp.connect.models.ChirpError;
 
 import static com.example.p2ptext.NetworkHelper.getDottedDecimalIP;
-import static com.example.p2ptext.P2pConnect.CONNECTED_PHASE;
-import static com.example.p2ptext.P2pConnect.CONNECTION_PHASE;
 import static com.example.p2ptext.P2pConnect.P2P_CONNECT_TAG;
-import static com.example.p2ptext.WiFiDevicesAdapter.getDeviceStatus;
 
 public class MainActivity extends AppCompatActivity implements WifiP2pManager.ConnectionInfoListener, WifiP2pManager.GroupInfoListener, SwipeRefreshLayout.OnRefreshListener {
     public static SyncService syncService;
@@ -65,23 +61,18 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
     public ListView deviceListView;
     public SwipeRefreshLayout refreshLayout;
     public WiFiDevicesAdapter listAdapter;
-    public WifiP2pDnsSdServiceRequest serviceRequest;
-    public List<String> p2pDeviceMacList;
+    public List<PeerDetails> peerDetailsList;
     public List<WifiP2pDevice> p2pDevicesList;
-    public Map<String, String> macToPhone;
     public HandlerThread runThread;
+    public Handler runHandler;
+    public Handler peerUpdateHandler;
     public P2pConnect p2pConnect;
     public Handler p2pConnectHandler;
     public static final String DEBUG_TAG = "mainConnect";
-    public static final String DEVICES_KEY = "devices_key";
-    public static boolean FIRST_RUN = true;
-    // TXT RECORD properties
-    public static final String AVAILABLE = "available";
-    public static final String PHONE_NUMBER = "_phone_number";
-    public static final String SERVICE_INSTANCE = "_wifip2pConnect";
-    public static final String SERVICE_REG_TYPE = "_presence._tcp";
-
-    public PeerDetails peerDetails;
+    public static final String CHIRP_TAG = "Chirp_Connect";
+    private ChirpConnect chirpConnect;
+    public PeerDetails myPeerDetails;
+    public Toast toast;
 
     IntentFilter mIntentFilter;
     WifiP2pManager mManager;
@@ -95,42 +86,46 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         sp = PreferenceManager.getDefaultSharedPreferences(MainActivity.this);
         phone = sp.getString("phone_no", null);
-        //get current wifi state
-        wifiState = wifiManager.isWifiEnabled();
         p2pDevicesList = new ArrayList<>();
-        macToPhone = new HashMap<>();
-        peerDetails = new PeerDetails();
-        peerDetails.setPhoneNumber(phone);
+        peerDetailsList = new ArrayList<>();
+        myPeerDetails = new PeerDetails();
+        myPeerDetails.setPhoneNumber(phone);
         init();
-        getP2pDeviceMacList();
+
+        //switch wifi on
         switchWifiOn();
+
+        //Initialize wifi direct
         wifiP2pInit();
-//        startService();
+
+        //start pSync Service
+        startService();
+
+        //start chirp
+        chirpInit();
+
+        //handler to broadcast my peerDetails
         runThread = new HandlerThread("Run");
         runThread.start();
-        final Handler handler = new Handler(runThread.getLooper());
-        handler.post(new Runnable() {
+        runHandler = new Handler(runThread.getLooper());
+        runHandler.postDelayed(new Runnable() {
             @Override
             public void run() {
-                Log.d(MainActivity.DEBUG_TAG, "First Run Status:" + FIRST_RUN);
-                if (FIRST_RUN) {
-                    Log.d(MainActivity.DEBUG_TAG, "First Run");
-                    startRegistrationAndDiscovery();
-                    discoverPeers();
-                    FIRST_RUN = false;
-                } else {
-                    startRegistrationAndDiscovery();
-                    discoverPeers();
-                }
-                handler.postDelayed(this, 120000);
+                Log.d(CHIRP_TAG, "Broadcasting Running...");
+                sendMyPeerDetails();
+                discoverPeers();
+                runHandler.postDelayed(this, 30000);
             }
-        });
+        }, 5000);
+
         //start p2pConnect
         if (p2pConnect == null) {
             Log.d(P2pConnect.P2P_CONNECT_TAG, "p2pConnect Started...");
             p2pConnectHandler = new Handler();
             p2pConnect = new P2pConnect(p2pConnectHandler, this, WifiP2pDevice.UNAVAILABLE);
         }
+
+        //item click listener of list view
         deviceListView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
             public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
@@ -140,16 +135,115 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
                 }
             }
         });
+
         mManager.requestConnectionInfo(mChannel, this);
-        final Handler peerUpdateHandler = new Handler();
+
+        //handler to update my peer details for broadcasting by chirp
+        peerUpdateHandler = new Handler();
         peerUpdateHandler.post(new Runnable() {
             @Override
             public void run() {
-                peerDetails.setBatteryLevel(getBatteryPercentage());
+                myPeerDetails.setBatteryLevel(getBatteryPercentage());
                 mManager.requestGroupInfo(mChannel, MainActivity.this);
-                peerUpdateHandler.postDelayed(this, 30000);
+                peerUpdateHandler.postDelayed(this, 20000);
             }
         });
+    }
+
+    ConnectEventListener connectEventListener = new ConnectEventListener() {
+
+        @Override
+        public void onSending(byte[] data, int channel) {
+            /**
+             * onSending is called when a send event begins.
+             * The data argument contains the payload being sent.
+             */
+            String hexData = "null";
+            if (data != null) {
+                hexData = bytesToHex(data);
+            }
+            Log.d(CHIRP_TAG, "ConnectCallback: onSending: " + hexData + " on channel: " + channel);
+        }
+
+        @Override
+        public void onSent(byte[] data, int channel) {
+            /**
+             * onSent is called when a send event has completed.
+             * The data argument contains the payload that was sent.
+             */
+            String hexData = "null";
+            if (data != null) {
+                hexData = bytesToHex(data);
+            }
+            Log.d(CHIRP_TAG, "ConnectCallback: onSent: " + hexData + " on channel: " + channel);
+        }
+
+        @Override
+        public void onReceiving(int channel) {
+            /**
+             * onReceiving is called when a receive event begins.
+             * No data has yet been received.
+             */
+            Log.d(CHIRP_TAG, "ConnectCallback: onReceiving on channel: " + channel);
+        }
+
+        @Override
+        public void onReceived(byte[] data, int channel) {
+            /**
+             * onReceived is called when a receive event has completed.
+             * If the payload was decoded successfully, it is passed in data.
+             * Otherwise, data is null.
+             */
+            if (data != null) {
+                String identifier = new String(data);
+                Log.d(CHIRP_TAG, "Received:" + identifier);
+                PeerDetails newPeer = PeerDetails.getPeerDetailsObject(identifier);
+                int peerIndex = isPeerDetailsAvailable(newPeer.getMacAddress());
+                if (peerIndex != -1) {
+                    PeerDetails oldPeer = peerDetailsList.get(peerIndex);
+                    oldPeer.setConnectedPeers(newPeer.getConnectedPeers());
+                    oldPeer.setGroupOwner(newPeer.isGroupOwner());
+                    oldPeer.setBatteryLevel(newPeer.getBatteryLevel());
+                    peerDetailsList.set(peerIndex, oldPeer);
+                } else {
+                    peerDetailsList.add(newPeer);
+                }
+                Log.d(CHIRP_TAG, "Peer details list:" + peerDetailsList.toString());
+                showToast(identifier);
+            } else {
+                Log.d(CHIRP_TAG, "Decode failed");
+            }
+        }
+
+        @Override
+        public void onStateChanged(int oldState, int newState) {
+            /**
+             * onStateChanged is called when the SDK changes state.
+             */
+            Log.v(CHIRP_TAG, "ConnectCallback: onStateChanged " + oldState + " -> " + newState);
+        }
+
+        @Override
+        public void onSystemVolumeChanged(int oldVolume, int newVolume) {
+            Log.v(CHIRP_TAG, "System volume has been changed, notify user to increase the volume when sending data");
+        }
+    };
+
+    private void sendMyPeerDetails() {
+        String peerDetailsString = myPeerDetails.toString();
+        Log.d(CHIRP_TAG, "Payload String:" + peerDetailsString);
+        byte[] payload = peerDetailsString.getBytes(Charset.forName("UTF-8"));
+        long maxSize = chirpConnect.maxPayloadLength();
+        if (maxSize < payload.length) {
+            Log.d(CHIRP_TAG, "Invalid Payload");
+            Log.d(CHIRP_TAG, "Allowed Payload:" + maxSize + " Payload length:" + payload.length);
+            return;
+        }
+        ChirpError error = chirpConnect.send(payload);
+        if (error.getCode() > 0) {
+            Log.d(CHIRP_TAG, error.getMessage());
+        }
+        Log.d(CHIRP_TAG, "Data sent successfully!!");
     }
 
     private int getBatteryPercentage() {
@@ -188,64 +282,9 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         });
     }
 
-    private void getP2pDeviceMacList() {
-//        Set<String> set = sp.getStringSet(DEVICES_KEY, new HashSet<String>());
-//        p2pDeviceMacList = set == null ? new ArrayList<String>() : new ArrayList<>(set);
-        p2pDeviceMacList = new ArrayList<>();
-        Log.d(MainActivity.DEBUG_TAG, "Device list:" + p2pDeviceMacList.toString());
-    }
-
-    private void startRegistrationAndDiscovery() {
-        if (!FIRST_RUN) {
-            Log.d(MainActivity.DEBUG_TAG, "Removing Services....");
-            mManager.clearLocalServices(mChannel, new WifiP2pManager.ActionListener() {
-                @Override
-                public void onSuccess() {
-                    Log.d(MainActivity.DEBUG_TAG, "Removing Services Succeeded");
-                    registerService();
-                }
-
-                @Override
-                public void onFailure(int reason) {
-                    Log.d(MainActivity.DEBUG_TAG, "Removing Services Failed");
-                }
-            });
-            mManager.clearServiceRequests(mChannel, new WifiP2pManager.ActionListener() {
-                @Override
-                public void onSuccess() {
-                    Log.d(MainActivity.DEBUG_TAG, "Removing Service Request Succeeded");
-                    discoverService();
-                }
-
-                @Override
-                public void onFailure(int reason) {
-                    Log.d(MainActivity.DEBUG_TAG, "Removing Service Request Failed");
-                }
-            });
-        }
-        Log.d(MainActivity.DEBUG_TAG, "Discovering Services...");
-        registerService();
-        discoverService();
-    }
-
-    private void registerService() {
-        WifiP2pDnsSdServiceInfo service = WifiP2pDnsSdServiceInfo.newInstance(SERVICE_INSTANCE, SERVICE_REG_TYPE, peerDetails.getRecordMap());
-        mManager.addLocalService(mChannel, service, new WifiP2pManager.ActionListener() {
-            @Override
-            public void onSuccess() {
-                Log.d(MainActivity.DEBUG_TAG, "Added Local Service");
-            }
-
-            @Override
-            public void onFailure(int error) {
-                Log.d(MainActivity.DEBUG_TAG, "Failed to add a service");
-            }
-        });
-    }
-
     public void discoverPeers() {
-        if (!FIRST_RUN)
-            mManager.stopPeerDiscovery(mChannel, null);
+//        if (!FIRST_RUN)
+//            mManager.stopPeerDiscovery(mChannel, null);
         mManager.discoverPeers(mChannel, new WifiP2pManager.ActionListener() {
             @Override
             public void onSuccess() {
@@ -259,65 +298,6 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         });
     }
 
-    private void discoverService() {
-        /*
-         * Register listeners for DNS-SD services. These are callbacks invoked
-         * by the system when a service is actually discovered.
-         */
-        mManager.setDnsSdResponseListeners(mChannel,
-                new WifiP2pManager.DnsSdServiceResponseListener() {
-                    @Override
-                    public void onDnsSdServiceAvailable(String instanceName,
-                                                        String registrationType, WifiP2pDevice srcDevice) {
-                        // A service has been discovered. Is this our app?
-                        if (instanceName.equalsIgnoreCase(SERVICE_INSTANCE)) {
-                            // update the UI and add the item the discovered device
-                            if (p2pDeviceMacList.contains(srcDevice.deviceAddress)) {
-                                Log.d(MainActivity.DEBUG_TAG, srcDevice.deviceAddress + " already present. Status: " + getDeviceStatus(srcDevice.status));
-                            } else {
-                                p2pDeviceMacList.add(srcDevice.deviceAddress);
-                                discoverPeers();
-                                Log.d(MainActivity.DEBUG_TAG, srcDevice.deviceAddress + " onBonjourServiceAvailable " + instanceName);
-                            }
-                        }
-                    }
-                }, new WifiP2pManager.DnsSdTxtRecordListener() {
-                    @Override
-                    public void onDnsSdTxtRecordAvailable(String fullDomainName, Map<String, String> txtRecordMap, WifiP2pDevice srcDevice) {
-                        Log.d(MainActivity.DEBUG_TAG, srcDevice.deviceName + " is " + txtRecordMap.get(AVAILABLE) + " phone: " + txtRecordMap.get(PHONE_NUMBER));
-                        macToPhone.put(srcDevice.deviceAddress, txtRecordMap.get(PHONE_NUMBER));
-                        PeerDetails peer = PeerDetails.getPeerDetailsObject(txtRecordMap);
-                        Log.d("XOB", "device found");
-                        Log.d("XOB", "peer details" + peer.toString());
-                    }
-                });
-
-        serviceRequest = WifiP2pDnsSdServiceRequest.newInstance();
-        mManager.addServiceRequest(mChannel, serviceRequest,
-                new WifiP2pManager.ActionListener() {
-                    @Override
-                    public void onSuccess() {
-                        Log.d(MainActivity.DEBUG_TAG, "Added service discovery request");
-                    }
-
-                    @Override
-                    public void onFailure(int arg0) {
-                        Log.d(MainActivity.DEBUG_TAG, "Failed adding service discovery request");
-                    }
-                });
-        mManager.discoverServices(mChannel, new WifiP2pManager.ActionListener() {
-            @Override
-            public void onSuccess() {
-                Log.d(MainActivity.DEBUG_TAG, "Service discovery initiated");
-            }
-
-            @Override
-            public void onFailure(int arg0) {
-                Log.d(MainActivity.DEBUG_TAG, "Service discovery failed");
-            }
-        });
-
-    }
 
     private void wifiP2pInit() {
         mIntentFilter = new IntentFilter();
@@ -367,7 +347,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
                     mainHandler.post(new Runnable() {
                         @Override
                         public void run() {
-                            peerDetails.setMacAddress(macAddress);
+                            myPeerDetails.setMacAddress(macAddress);
                             macAddressText.setText(macAddress);
                         }
                     });
@@ -388,7 +368,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
                 Collection<WifiP2pDevice> peers = peerList.getDeviceList();
                 List<WifiP2pDevice> refreshedPeers = new ArrayList<>();
                 for (WifiP2pDevice device : peers) {
-                    if (p2pDeviceMacList.contains(device.deviceAddress)) {
+                    if (isPeerDetailsAvailable(device.deviceAddress) != -1) {
                         Log.d(MainActivity.DEBUG_TAG, device.deviceAddress + " is discovered");
                         refreshedPeers.add(device);
                     } else
@@ -412,7 +392,39 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         }
     };
 
+    //check if peer device is available(has our app)
+    public int isPeerDetailsAvailable(String deviceAddress) {
+        if (peerDetailsList.isEmpty())
+            return -1;
+        int i = 0;
+        for (PeerDetails peer : peerDetailsList) {
+            Log.d(DEBUG_TAG, "peer mac:" + peer.getMacAddress() + " arg:" + deviceAddress);
+            if (isMacEqual(peer.getMacAddress(), deviceAddress)) {
+                Log.d(DEBUG_TAG, "both mac are same");
+                return i;
+            }
+            i++;
+        }
+        return -1;
+    }
+
+    public boolean isMacEqual(String mac1, String mac2) {
+        String[] mac1Vals = mac1.split(":");
+        String[] mac2Vals = mac2.split(":");
+        for (int i = 0; i < mac1Vals.length; i++) {
+            if (mac1Vals[i].length() == 1)
+                mac1Vals[i] = "0" + mac1Vals[i];
+            if (mac2Vals[i].length() == 1)
+                mac2Vals[i] = "0" + mac2Vals[i];
+            if (!mac1Vals[i].equals(mac2Vals[i]))
+                return false;
+        }
+        return true;
+    }
+
     private void switchWifiOn() {
+        //get current wifi state
+        wifiState = wifiManager.isWifiEnabled();
         if (!wifiState) {
             wifiManager.setWifiEnabled(true);
         }
@@ -478,12 +490,9 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
     protected void onStop() {
         Log.d(DEBUG_TAG, ">>>OnSTOP called");
         p2pConnectHandler.removeCallbacks(p2pConnect);
-        SharedPreferences.Editor editor = sp.edit();
-        HashSet<String> set = new HashSet<>(p2pDeviceMacList);
-        editor.putStringSet(DEVICES_KEY, set).apply();
+        runHandler.removeCallbacksAndMessages(null);
+        peerUpdateHandler.removeCallbacksAndMessages(null);
         mManager.stopPeerDiscovery(mChannel, null);
-        mManager.clearServiceRequests(mChannel, null);
-        mManager.clearLocalServices(mChannel, null);
         runThread.quit();
         super.onStop();
     }
@@ -505,6 +514,12 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
                 public void onSuccess() {
                 }
             });
+        }
+        stopChirpSdk();
+        try {
+            chirpConnect.close();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
@@ -536,15 +551,15 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         groupOwnerNameText.setText(groupName);
         //update peer details
         if (group != null && group.isGroupOwner()) {
-            peerDetails.setGroupOwner(true);
-            peerDetails.setMaxConnectedPeers(4);
-            peerDetails.setConnectedPeers(group.getClientList().size());
+            myPeerDetails.setGroupOwner(true);
+            myPeerDetails.setMaxConnectedPeers(4);
+            myPeerDetails.setConnectedPeers(group.getClientList().size());
         } else {
-            peerDetails.setGroupOwner(false);
-            peerDetails.setMaxConnectedPeers(4);
-            peerDetails.setConnectedPeers(0);
+            myPeerDetails.setGroupOwner(false);
+            myPeerDetails.setMaxConnectedPeers(4);
+            myPeerDetails.setConnectedPeers(0);
         }
-        Log.d("XOB", "MY device:" + peerDetails.toString());
+        Log.d("XOB", "MY device:" + myPeerDetails.toString());
     }
 
     @Override
@@ -552,5 +567,53 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         refreshLayout.setRefreshing(true);
         onUpdateStatus(refreshLayout);
         refreshLayout.setRefreshing(false);
+    }
+
+    private void chirpInit() {
+        //ultrasonic poly
+        chirpConnect = new ChirpConnect(this, getResources().getString(R.string.CHIRP_APP_KEY), getResources().getString(R.string.CHIRP_APP_SECRET));
+        ChirpError error = chirpConnect.setConfig(getResources().getString(R.string.CHIRP_APP_CONFIG));
+        if (error.getCode() == 0) {
+            Log.v("ChirpSDK: ", "Configured ChirpSDK");
+        } else {
+            Log.e("ChirpError: ", error.getMessage());
+        }
+        chirpConnect.setListener(connectEventListener);
+        startChirpSdk();
+    }
+
+    public void stopChirpSdk() {
+        ChirpError error = chirpConnect.stop();
+        if (error.getCode() > 0) {
+            Log.d(CHIRP_TAG, "Error stopping:" + error.getMessage());
+            return;
+        }
+        Log.d(CHIRP_TAG, "Chirp Stopped");
+    }
+
+    public void startChirpSdk() {
+        ChirpError error = chirpConnect.start();
+        if (error.getCode() > 0) {
+            Log.d(CHIRP_TAG, "Error starting:" + error.getMessage());
+            return;
+        }
+        Log.d(CHIRP_TAG, "Chirp Started");
+    }
+
+    private final static char[] hexArray = "0123456789abcdef".toCharArray();
+
+    public static String bytesToHex(byte[] bytes) {
+        char[] hexChars = new char[bytes.length * 2];
+        for (int j = 0; j < bytes.length; j++) {
+            int v = bytes[j] & 0xFF;
+            hexChars[j * 2] = hexArray[v >>> 4];
+            hexChars[j * 2 + 1] = hexArray[v & 0x0F];
+        }
+        return new String(hexChars);
+    }
+
+    public void showToast(String message) {
+        toast = Toast.makeText(this, message, Toast.LENGTH_SHORT);
+        toast.show();
     }
 }
