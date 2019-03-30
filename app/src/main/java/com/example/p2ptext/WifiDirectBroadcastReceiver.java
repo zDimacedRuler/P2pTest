@@ -6,31 +6,27 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.NetworkInfo;
 import android.net.wifi.p2p.WifiP2pDevice;
-import android.net.wifi.p2p.WifiP2pInfo;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.util.Log;
-
-import static com.example.p2ptext.P2pConnect.P2P_CONNECT_TAG;
 
 public class WifiDirectBroadcastReceiver extends BroadcastReceiver {
     private WifiP2pManager manager;
     private WifiP2pManager.Channel channel;
     private Activity activity;
-    private WifiP2pManager.PeerListListener listListener;
+    private WifiP2pManager.PeerListListener peerListListener;
 
     /**
-     * @param manager            WifiP2pManager system service
-     * @param channel            Wifi p2p channel
-     * @param activity           activity associated with the receiver
-     * @param myPeerListListener
+     * @param manager  WifiP2pManager system service
+     * @param channel  Wifi p2p channel
+     * @param activity activity associated with the receiver
      */
     public WifiDirectBroadcastReceiver(WifiP2pManager manager, WifiP2pManager.Channel channel,
-                                       Activity activity, WifiP2pManager.PeerListListener myPeerListListener) {
+                                       Activity activity, WifiP2pManager.PeerListListener peerListListener) {
         super();
         this.manager = manager;
         this.channel = channel;
         this.activity = activity;
-        this.listListener = myPeerListListener;
+        this.peerListListener = peerListListener;
     }
 
     /*
@@ -59,10 +55,10 @@ public class WifiDirectBroadcastReceiver extends BroadcastReceiver {
             Log.d(MainActivity.DEBUG_TAG, "Device status -" + WiFiDevicesAdapter.getDeviceStatus(device.status));
             P2pConnect.DEVICE_STATUS = device.status;
         } else if (WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION.equals(action)) {
-            // Call WifiP2pManager.requestPeers() to get a list of current peers
+//             Call WifiP2pManager.requestPeers() to get a list of current peers
             if (manager != null) {
                 Log.d(MainActivity.DEBUG_TAG, "Requesting Peers..");
-                manager.requestPeers(channel, listListener);
+                manager.requestPeers(channel, peerListListener);
             }
         } else if (WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION.equals(action)) {
             // Check to see if Wi-Fi is enabled and notify appropriate activity

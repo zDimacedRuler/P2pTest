@@ -11,11 +11,11 @@ import android.widget.TextView;
 
 import java.util.List;
 
-public class WiFiDevicesAdapter extends ArrayAdapter<WifiP2pDevice> {
-    private List<WifiP2pDevice> items;
+public class WiFiDevicesAdapter extends ArrayAdapter<PeerDetails> {
+    private List<PeerDetails> items;
     private Context context;
 
-    public WiFiDevicesAdapter(Context context, List<WifiP2pDevice> items) {
+    public WiFiDevicesAdapter(Context context, List<PeerDetails> items) {
         super(context, 0, items);
         this.items = items;
         this.context = context;
@@ -27,16 +27,16 @@ public class WiFiDevicesAdapter extends ArrayAdapter<WifiP2pDevice> {
         if (listItemView == null) {
             listItemView = LayoutInflater.from(getContext()).inflate(R.layout.list_item, parent, false);
         }
-        WifiP2pDevice device = items.get(position);
+        PeerDetails device = items.get(position);
         if (device != null) {
             TextView macAddressText = listItemView.findViewById(R.id.list_item_mac);
             TextView deviceText = listItemView.findViewById(R.id.list_item_device);
             TextView groupOwnerText = listItemView.findViewById(R.id.list_item_group_owner);
             TextView statusText = listItemView.findViewById(R.id.list_item_status);
-            macAddressText.setText(device.deviceAddress);
-            deviceText.setText(device.deviceName);
+            macAddressText.setText(device.getMacAddress());
+            deviceText.setText("Connected Peers: "+device.getConnectedPeers());
             groupOwnerText.setText("Group Owner: " + device.isGroupOwner());
-            statusText.setText(getDeviceStatus(device.status));
+            statusText.setText(getDeviceStatus(device.getDeviceStatus()));
         }
         return listItemView;
     }
