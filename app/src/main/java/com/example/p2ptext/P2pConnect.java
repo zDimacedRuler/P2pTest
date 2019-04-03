@@ -2,6 +2,7 @@ package com.example.p2ptext;
 
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.wifi.WifiInfo;
 import android.net.wifi.p2p.WifiP2pDevice;
 import android.os.BatteryManager;
 import android.os.Handler;
@@ -57,6 +58,12 @@ public class P2pConnect implements Runnable {
     @Override
     public void run() {
         int delay = PHASE_DELAY;
+        WifiInfo wifiInfo = activity.wifiManager.getConnectionInfo();
+        String ssidName = wifiInfo.getSSID();
+        boolean connected = false;
+        if (activity.isPeerDetailsAvailable(ssidName.substring(1, ssidName.length() - 1)) != -1) {
+            connected = true;
+        }
         if (activity.myPeerDetails.isGroupOwner()) {
             Log.d(P2P_CONNECT_TAG, "I'm a GO");
             if (activity.myPeerDetails.getConnectedPeers() == 0) {
@@ -68,7 +75,7 @@ public class P2pConnect implements Runnable {
                 activity.removeGroup();
             }
             P2P_CONNECT_PHASE = CONNECTED_PHASE;
-        } else if (DEVICE_STATUS == WifiP2pDevice.CONNECTED && !activity.myPeerDetails.isGroupOwner()) {
+        } else if (connected && !activity.myPeerDetails.isGroupOwner()) {
             Log.d(P2P_CONNECT_TAG, "Connected to GO");
             P2P_CONNECT_PHASE = CONNECTED_PHASE;
         } else {
@@ -89,29 +96,10 @@ public class P2pConnect implements Runnable {
                     Log.d(P2P_CONNECT_TAG, "No GO found");
                 } else if (groupOwnerList.size() == 1) {
                     Log.d(P2P_CONNECT_TAG, "One GO found.Trying to connect:");
-                    PeerDetails peer = groupOwnerList.get(0);
-                    if (peer.getConnectedPeers() < peer.getMaxConnectedPeers() && peer.isGroupOwner()) {
-                        Log.d(P2P_CONNECT_TAG, "Peers Connected less than threshold.Trying to connect:");
-                        activity.connectPeers(peer);
-                        delay = CONNECTION_ESTABLISHMENT_DELAY;
-                    } else {
-                        Log.d(P2P_CONNECT_TAG, "Peers Connected equal to threshold. Aborting Connection.");
-                    }
+                    activity.connectWifi(groupOwnerList.get(0));
+                    delay = CONNECTION_ESTABLISHMENT_DELAY;
                 } else {
                     Log.d(P2P_CONNECT_TAG, "More than one GO found.Trying to connect:");
-                    PeerDetails bestPeer = groupOwnerList.get(0);
-                    for (PeerDetails peer : groupOwnerList) {
-                        if (peer.getConnectedPeers() <= bestPeer.getConnectedPeers() && peer.getBatteryLevel() > bestPeer.getBatteryLevel())
-                            bestPeer = peer;
-                    }
-                    Log.d(P2P_CONNECT_TAG, "Best peer found " + bestPeer.getMacAddress());
-                    if (bestPeer.getConnectedPeers() < bestPeer.getMaxConnectedPeers() && bestPeer.isGroupOwner()) {
-                        Log.d(P2P_CONNECT_TAG, "Peers Connected less than threshold.Trying to connect:");
-                        activity.connectPeers(bestPeer);
-                        delay = CONNECTION_ESTABLISHMENT_DELAY;
-                    } else {
-                        Log.d(P2P_CONNECT_TAG, "Peers Connected equal to threshold. Aborting Connection.");
-                    }
                 }
                 //condition to switch to Random Switching Phase
                 if (step > CONNECTION_PHASE_STEP) {
@@ -132,6 +120,7 @@ public class P2pConnect implements Runnable {
             }
         }
         Log.d(P2P_CONNECT_TAG, "Delay is:" + delay / 1000 + "secs");
+        activity.wifiManager.startScan();
         handler.postDelayed(this, delay);
     }
 

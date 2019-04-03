@@ -13,12 +13,10 @@ import java.util.List;
 
 public class WiFiDevicesAdapter extends ArrayAdapter<PeerDetails> {
     private List<PeerDetails> items;
-    private Context context;
 
     public WiFiDevicesAdapter(Context context, List<PeerDetails> items) {
         super(context, 0, items);
         this.items = items;
-        this.context = context;
     }
 
     @Override
@@ -30,13 +28,7 @@ public class WiFiDevicesAdapter extends ArrayAdapter<PeerDetails> {
         PeerDetails device = items.get(position);
         if (device != null) {
             TextView macAddressText = listItemView.findViewById(R.id.list_item_mac);
-            TextView deviceText = listItemView.findViewById(R.id.list_item_device);
-            TextView groupOwnerText = listItemView.findViewById(R.id.list_item_group_owner);
-            TextView statusText = listItemView.findViewById(R.id.list_item_status);
-            macAddressText.setText(device.getMacAddress());
-            deviceText.setText("Connected Peers: "+device.getConnectedPeers());
-            groupOwnerText.setText("Group Owner: " + device.isGroupOwner());
-            statusText.setText(getDeviceStatus(device.getDeviceStatus()));
+            macAddressText.setText(device.getWifiName());
         }
         return listItemView;
     }
