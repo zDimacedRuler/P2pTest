@@ -12,14 +12,11 @@ import android.net.wifi.ScanResult;
 import android.net.wifi.WifiConfiguration;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
-import android.net.wifi.WpsInfo;
-import android.net.wifi.p2p.WifiP2pConfig;
 import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pDeviceList;
 import android.net.wifi.p2p.WifiP2pGroup;
 import android.net.wifi.p2p.WifiP2pInfo;
 import android.net.wifi.p2p.WifiP2pManager;
-import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -34,6 +31,9 @@ import android.widget.AdapterView;
 import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import com.example.p2ptext.Receivers.WifiDirectBroadcastReceiver;
+import com.example.p2ptext.Receivers.WifiScanReceiver;
 
 import java.nio.charset.Charset;
 import java.util.ArrayList;
@@ -72,6 +72,8 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
     public Handler peerUpdateHandler;
     public P2pConnect p2pConnect;
     public Handler p2pConnectHandler;
+    public SearchingDisarmDB searchingDisarmDB;
+    public Handler searchingDisarmDBHandler;
     public static final String DEBUG_TAG = "mainConnect";
     public static final String CHIRP_TAG = "Chirp_Connect";
     private ChirpConnect chirpConnect;
@@ -83,8 +85,8 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
 
     //wifi
     public boolean wifiState;
-    public WifiManager wifiManager;
-    public List<ScanResult> wifiScanList;
+    public static WifiManager wifiManager;
+    public static List<ScanResult> wifiScanList;
     public WifiScanReceiver wifiReceiver;
     public IntentFilter wifiIntentFilter;
 
@@ -127,7 +129,14 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         if (p2pConnect == null) {
             Log.d(P2pConnect.P2P_CONNECT_TAG, "p2pConnect Started...");
             p2pConnectHandler = new Handler();
-            p2pConnect = new P2pConnect(p2pConnectHandler, this, WifiP2pDevice.UNAVAILABLE);
+            p2pConnect = new P2pConnect(p2pConnectHandler, this, WifiP2pDevice.UNAVAILABLE, phone);
+        }
+
+        //start searchingDisarmDB
+        if (searchingDisarmDB == null) {
+            Log.d(SearchingDisarmDB.DISARM_DB_TAG, "Searching DisarmDB Started...");
+            searchingDisarmDBHandler = new Handler();
+            searchingDisarmDB = new SearchingDisarmDB(searchingDisarmDBHandler, this, phone);
         }
 
         //item click listener of list view
@@ -165,7 +174,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
             public void run() {
                 startDiscovery();
                 updatePeerDetailsList();
-                discoveryUpdateHandler.postDelayed(this, 60000);
+                discoveryUpdateHandler.postDelayed(this, 120000);
             }
         });
         //explain Refresh feature
@@ -181,7 +190,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         }
         wifiIntentFilter = new IntentFilter();
         wifiIntentFilter.addAction(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
-        wifiReceiver = new WifiScanReceiver(this);
+        wifiReceiver = new WifiScanReceiver();
         registerReceiver(wifiReceiver, wifiIntentFilter);
         wifiManager.startScan();
     }
@@ -390,22 +399,17 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
 
     public void connectWifi(PeerDetails peerDetails) {
         WifiInfo info = wifiManager.getConnectionInfo();
-        String ssidName = info.getSSID();
-        boolean connected = false;
-        if (isPeerDetailsAvailable(ssidName.substring(1, ssidName.length() - 1)) != -1) {
-            connected = true;
-        } else {
-            WifiConfiguration wc = new WifiConfiguration();
-            wc.SSID = "\"" + peerDetails.getWifiName() + "\"";
-            wc.preSharedKey = "\"" + peerDetails.getPassword() + "\"";
-            wc.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_PSK);
-            if (wifiManager.pingSupplicant()) {
-                wifiManager.disconnect();
-                wifiManager.disableNetwork(info.getNetworkId());
-            }
-            int res = wifiManager.addNetwork(wc);
-            boolean b = wifiManager.enableNetwork(res, true);
+        WifiConfiguration wc = new WifiConfiguration();
+        wc.SSID = "\"" + peerDetails.getWifiName() + "\"";
+        wc.preSharedKey = "\"" + peerDetails.getPassword() + "\"";
+        wc.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.WPA_PSK);
+        if (wifiManager.pingSupplicant()) {
+            wifiManager.disconnect();
+            wifiManager.disableNetwork(info.getNetworkId());
         }
+        int res = wifiManager.addNetwork(wc);
+        boolean b = wifiManager.enableNetwork(res, true);
+
     }
 
     private void startService() {
@@ -548,8 +552,10 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
     @Override
     protected void onDestroy() {
         Log.d(DEBUG_TAG, ">>>OnDestroy called");
-        if (p2pConnectHandler != null)
-            p2pConnectHandler.removeCallbacks(p2pConnect);
+        if (p2pConnect != null)
+            p2pConnect.stop();
+        if (searchingDisarmDB != null)
+            searchingDisarmDB.stop();
         stopBroadcastingPeerDetails();
         discoveryUpdateHandler.removeCallbacksAndMessages(null);
         if (peerUpdateHandler != null)
@@ -581,6 +587,14 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         myNumberText.setText(phone);
         myIPAssignedText.setText(myIpAddress);
         imOwnerText.setText(String.valueOf(info.isGroupOwner));
+        if (info.isGroupOwner) {
+            myPeerDetails.setGroupOwner(true);
+        } else {
+            myPeerDetails.setGroupOwner(false);
+            myPeerDetails.setWifiName("");
+            myPeerDetails.setPassword("");
+            myPeerDetails.setConnectedPeers(0);
+        }
         ownerIPText.setText(ownerIPAddrres);
         mManager.requestGroupInfo(mChannel, this);
     }
@@ -594,17 +608,10 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
             if (group.isGroupOwner()) {
                 myPeerDetails.setWifiName(group.getNetworkName());
                 myPeerDetails.setPassword(group.getPassphrase());
-                myPeerDetails.setGroupOwner(true);
                 myPeerDetails.setConnectedPeers(group.getClientList().size());
                 Log.d("GOTest", "SSID:" + group.getNetworkName());
                 Log.d("GOTest", "Pass:" + group.getPassphrase());
-            } else {
-                myPeerDetails.setWifiName("");
-                myPeerDetails.setPassword("");
-                myPeerDetails.setGroupOwner(false);
-                myPeerDetails.setConnectedPeers(0);
             }
-
         } catch (Exception ignored) {
         }
         groupOwnerNameText.setText(groupName);

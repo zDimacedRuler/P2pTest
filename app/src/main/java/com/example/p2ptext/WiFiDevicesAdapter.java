@@ -33,7 +33,7 @@ public class WiFiDevicesAdapter extends ArrayAdapter<PeerDetails> {
         return listItemView;
     }
 
-     static String getDeviceStatus(int statusCode) {
+     public static String getDeviceStatus(int statusCode) {
         switch (statusCode) {
             case WifiP2pDevice.CONNECTED:
                 return "Connected";

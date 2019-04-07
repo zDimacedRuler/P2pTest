@@ -1,4 +1,4 @@
-package com.example.p2ptext;
+package com.example.p2ptext.Receivers;
 
 import android.app.Activity;
 import android.content.BroadcastReceiver;
@@ -8,6 +8,10 @@ import android.net.NetworkInfo;
 import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.util.Log;
+
+import com.example.p2ptext.MainActivity;
+import com.example.p2ptext.P2pConnect;
+import com.example.p2ptext.WiFiDevicesAdapter;
 
 public class WifiDirectBroadcastReceiver extends BroadcastReceiver {
     private WifiP2pManager manager;
