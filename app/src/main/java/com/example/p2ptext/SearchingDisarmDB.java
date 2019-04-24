@@ -23,7 +23,7 @@ public class SearchingDisarmDB implements Runnable {
     public SearchingDisarmDB(Handler handler, MainActivity activity, String phoneNumber) {
         this.handler = handler;
         this.activity = activity;
-        logger = new Logger(phoneNumber);
+        logger = new Logger(phoneNumber, P2pConnect.P2P_LOGGER_FILENAME);
         this.handler.post(this);
     }
 

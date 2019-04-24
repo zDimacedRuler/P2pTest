@@ -11,14 +11,15 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 
 public class Logger {
-    private static final String fileName = "P2pConnect_log";
+    private String fileName;
     private static final String directoryName = "PMS/";
     private static final String LOGGER_TAG = "Logger";
     private String phoneNumber;
 
 
-    public Logger(String phoneNumber) {
+    public Logger(String phoneNumber, String fileName) {
         this.phoneNumber = phoneNumber;
+        this.fileName = fileName;
         Log.v(LOGGER_TAG, "Logging Initiated");
     }
 

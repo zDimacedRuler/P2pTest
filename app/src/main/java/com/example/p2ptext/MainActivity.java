@@ -32,6 +32,7 @@ import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.example.p2ptext.Receivers.BatteryBroadcastReceiver;
 import com.example.p2ptext.Receivers.WifiDirectBroadcastReceiver;
 import com.example.p2ptext.Receivers.WifiScanReceiver;
 
@@ -96,6 +97,10 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
     public WifiP2pManager.Channel mChannel;
     public BroadcastReceiver mReceiver;
 
+    //battery Logger
+    IntentFilter batteryFilter;
+    BroadcastReceiver batteryBroadcastReceiver;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -123,6 +128,9 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
 
         //set volume as max
         setMaxVolume();
+
+        //initialize battery logger
+        batteryLoggerInit();
 
 
         //start p2pConnect
@@ -182,6 +190,14 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
 //        createGroup();
     }
 
+    private void batteryLoggerInit() {
+        batteryFilter = new IntentFilter();
+        batteryFilter.addAction(Intent.ACTION_BATTERY_CHANGED);
+        Logger batteryLogger = new Logger(phone, "Battery_log");
+        batteryBroadcastReceiver = new BatteryBroadcastReceiver(batteryLogger);
+        registerReceiver(batteryBroadcastReceiver,batteryFilter);
+    }
+
     private void wifiInit() {
         wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         wifiState = wifiManager.isWifiEnabled();
@@ -192,6 +208,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         wifiIntentFilter.addAction(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
         wifiReceiver = new WifiScanReceiver();
         registerReceiver(wifiReceiver, wifiIntentFilter);
+        wifiScanList = new ArrayList<>();
         wifiManager.startScan();
     }
 
@@ -563,6 +580,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         mManager.stopPeerDiscovery(mChannel, null);
         unregisterReceiver(mReceiver);
         unregisterReceiver(wifiReceiver);
+        unregisterReceiver(batteryBroadcastReceiver);
         unbindSyncService();
         removeGroup();
         stopChirpSdk();

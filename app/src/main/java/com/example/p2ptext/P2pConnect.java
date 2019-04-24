@@ -51,6 +51,8 @@ public class P2pConnect implements Runnable {
 
     public int minSignalLevel = 2;
 
+    public static final String P2P_LOGGER_FILENAME = "P2pConnect_log";
+
 
     P2pConnect(Handler handler, MainActivity activity, int status, String phoneNumber) {
         this.handler = handler;
@@ -58,7 +60,7 @@ public class P2pConnect implements Runnable {
         DEVICE_STATUS = status;
         P2P_CONNECT_PHASE = INITIAL_PHASE;
         connected_step = MAX_CONNECTED_PHASE_STEP;
-        logger = new Logger(phoneNumber);
+        logger = new Logger(phoneNumber, P2P_LOGGER_FILENAME);
         logger.addMessageToLog("P2pConnect Started");
         this.handler.post(this);
     }
