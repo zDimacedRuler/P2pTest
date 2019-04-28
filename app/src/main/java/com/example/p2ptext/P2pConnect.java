@@ -33,7 +33,7 @@ public class P2pConnect implements Runnable {
 
     private static final int CONNECTION_PHASE_DELAY = 3000;
 
-    private static final int CONNECTION_ESTABLISHMENT_DELAY = 8000;
+    private static final int CONNECTION_ESTABLISHMENT_DELAY = 10000;
 
     private static final int CONNECTION_PHASE_STEP = 4;
 

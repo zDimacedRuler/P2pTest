@@ -77,10 +77,12 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
     public Handler searchingDisarmDBHandler;
     public static final String DEBUG_TAG = "mainConnect";
     public static final String CHIRP_TAG = "Chirp_Connect";
+    public static final String GO_DETAIL_BROAD_TAG = "send_go_detail";
     private ChirpConnect chirpConnect;
     public PeerDetails myPeerDetails;
     public Toast toast;
     public boolean receivingData;
+    public boolean sendingData;
     public int decodeFailed;
     public static final int DECODE_FAILED_THRESHOLD = 3;
 
@@ -100,6 +102,10 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
     //battery Logger
     IntentFilter batteryFilter;
     BroadcastReceiver batteryBroadcastReceiver;
+
+    //Broadcast Go Detail
+    public HandlerThread sendGODetailThread;
+    public Handler sendGODetailHandler;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -185,9 +191,10 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
                 discoveryUpdateHandler.postDelayed(this, 120000);
             }
         });
+        //start GO detail Broadcast
+        startGOPeerDetailBroadcast();
         //explain Refresh feature
         showToast("Pull to refresh details");
-//        createGroup();
     }
 
     private void batteryLoggerInit() {
@@ -195,7 +202,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         batteryFilter.addAction(Intent.ACTION_BATTERY_CHANGED);
         Logger batteryLogger = new Logger(phone, "Battery_log");
         batteryBroadcastReceiver = new BatteryBroadcastReceiver(batteryLogger);
-        registerReceiver(batteryBroadcastReceiver,batteryFilter);
+        registerReceiver(batteryBroadcastReceiver, batteryFilter);
     }
 
     private void wifiInit() {
@@ -249,10 +256,14 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
             @Override
             public void run() {
                 Log.d(CHIRP_TAG, "Sending Broadcast...");
-                sendMyPeerDetails();
+                String peerDetailsString = myPeerDetails.toString();
+                if (sendingData)
+                    Log.d(GO_DETAIL_BROAD_TAG, "Cant send now..Sending now!!");
+                else
+                    sendPeerDetails(peerDetailsString);
                 //update peer details
                 onUpdateStatus();
-                int delay = getRandomNumberInRange(5, 15) * 1000;
+                int delay = getRandomNumberInRange(4, 8) * 1000;
                 Log.d(CHIRP_TAG, "The random delay is:" + delay / 1000 + " seconds");
                 runHandler.postDelayed(this, delay);
             }
@@ -265,6 +276,43 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         if (runThread != null)
             runThread.quit();
     }
+
+    private void startGOPeerDetailBroadcast() {
+        sendGODetailThread = new HandlerThread("Send_GO_DETAIL");
+        sendGODetailThread.start();
+        sendGODetailHandler = new Handler(sendGODetailThread.getLooper());
+        sendGODetailHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                Log.d(GO_DETAIL_BROAD_TAG, "Sending GO details...");
+                //check if I'm connected to GO
+                WifiInfo wifiInfo = MainActivity.wifiManager.getConnectionInfo();
+                String ssidName = wifiInfo.getSSID().replace("\"", "");
+                int connectedPeerIndex = isPeerDetailsAvailable(ssidName);
+                if (connectedPeerIndex != -1 && !myPeerDetails.isGroupOwner()) {
+                    String GODetailsString = peerDetailsList.get(connectedPeerIndex).toString();
+                    Log.d(GO_DETAIL_BROAD_TAG, "Connected To GO:" + GODetailsString);
+                    if (sendingData)
+                        Log.d(GO_DETAIL_BROAD_TAG, "Cant send now..Sending now!!");
+                    else
+                        sendPeerDetails(GODetailsString);
+                } else {
+                    Log.d(GO_DETAIL_BROAD_TAG, "Not Connected To GO or I'm a GO");
+                }
+                int delay = getRandomNumberInRange(4, 8) * 1000;
+                Log.d(CHIRP_TAG, "The random delay is:" + delay / 1000 + " seconds");
+                sendGODetailHandler.postDelayed(this, delay);
+            }
+        }, 5000);
+    }
+
+    private void stopGOPeerDetailBroadcast() {
+        if (sendGODetailHandler != null)
+            sendGODetailHandler.removeCallbacksAndMessages(null);
+        if (sendGODetailThread != null)
+            sendGODetailThread.quit();
+    }
+
 
     public void createGroup() {
         mManager.createGroup(mChannel, new WifiP2pManager.ActionListener() {
@@ -303,8 +351,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         onUpdateStatus();
     }
 
-    private void sendMyPeerDetails() {
-        String peerDetailsString = myPeerDetails.toString();
+    private void sendPeerDetails(String peerDetailsString) {
         Log.d(CHIRP_TAG, "Payload String:" + peerDetailsString);
         byte[] payload = peerDetailsString.getBytes(Charset.forName("UTF-8"));
         long maxSize = chirpConnect.maxPayloadLength();
@@ -482,6 +529,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
              * onSending is called when a send event begins.
              * The data argument contains the payload being sent.
              */
+            sendingData = true;
             String hexData = "null";
             if (data != null) {
                 hexData = bytesToHex(data);
@@ -499,6 +547,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
             if (data != null) {
                 hexData = bytesToHex(data);
             }
+            sendingData = false;
             Log.d(CHIRP_TAG, "ConnectCallback: onSent: " + hexData + " on channel: " + channel);
         }
 
@@ -574,6 +623,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         if (searchingDisarmDB != null)
             searchingDisarmDB.stop();
         stopBroadcastingPeerDetails();
+        stopGOPeerDetailBroadcast();
         discoveryUpdateHandler.removeCallbacksAndMessages(null);
         if (peerUpdateHandler != null)
             peerUpdateHandler.removeCallbacksAndMessages(null);
@@ -655,6 +705,7 @@ public class MainActivity extends AppCompatActivity implements WifiP2pManager.Co
         decodeFailed = 0;
         chirpConnect.setListener(connectEventListener);
         receivingData = false;
+        sendingData = false;
         startChirpSdk();
     }
 
